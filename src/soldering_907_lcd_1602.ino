@@ -9,6 +9,9 @@
  * First, the IRON is powered off and the controller waits for 32 timer interrupts (about 1 ms)
  * then the current IRON temperature is checked and the controller waits for check_period Timer1 interrupts
  * to restart the all procedure over again
+ * 
+ * This is a modified version of project from  https://github.com/sfrwmaker/soldering_907_lcd/tree/master/lcd_1602
+ * The original code is in ../original
  */
  
 #include <LiquidCrystal.h>
@@ -20,6 +23,10 @@
 
 
 Adafruit_INA219 ina219;
+// pin implicitly used by I2C libiary
+const byte colck_pin = A5;   // wired to INA219 SCL
+const byte data_pin = A4;    // wired to INA219 SDA
+
 // The LCD 1602 parallel interface
 const byte LCD_RS_PIN     = 13;
 const byte LCD_E_PIN      = 12;
@@ -33,7 +40,7 @@ const byte R_MAIN_PIN = 2;                      // Rotary Encoder main pin (righ
 const byte R_SECD_PIN = 4;                      // Rotary Encoder second pin (left)
 const byte R_BUTN_PIN = 3;                      // Rotary Encoder push button pin
 
-const byte probePIN  = A0;                      // Thermometer pin from soldering iron
+const byte probePIN  = A0;                      // NOT used // Thermometer pin from soldering iron  
 const byte paddlePIN = 9;                       // paddle pin
 const byte heaterPIN = 10;                      // The soldering iron heater pin
 const byte buzzerPIN = 11;                      // The simple buzzer to make a noise
@@ -492,7 +499,7 @@ class BUTTON {
     void init(void) { pinMode(buttonPIN, INPUT_PULLUP); }
     void setTimeout(uint16_t timeout_ms = 3000) { overPress = timeout_ms; }
     byte intButtonStatus(void) { byte m = mode; mode = 0; return m; }
-    void cnangeINTR(void);
+    void changeINTR(void);
     byte buttonCheck(void);
     bool buttonTick(void);
   private:
@@ -505,7 +512,7 @@ class BUTTON {
     const uint16_t    shortPress = 900;         // If the button was pressed less that this timeout, we assume the short button press
 };
 
-void BUTTON::cnangeINTR(void) {                 // Interrupt function, called when the button status changed
+void BUTTON::changeINTR(void) {                 // Interrupt function, called when the button status changed
   
   bool keyUp = digitalRead(buttonPIN);
   unsigned long now_t = millis();
@@ -574,7 +581,7 @@ class ENCODER {
     int16_t read(void)                          { return pos; }
     void    reset(int16_t initPos, int16_t low, int16_t upp, byte inc = 1, byte fast_inc = 0, bool looped = false);
     bool    write(int16_t initPos);
-    void    cnangeINTR(void);
+    void    changeINTR(void);
   private:
     int32_t           min_pos, max_pos;
     volatile uint32_t pt;                       // Time in ms when the encoder was rotaded
@@ -605,7 +612,7 @@ void ENCODER::reset(int16_t initPos, int16_t low, int16_t upp, byte inc, byte fa
   is_looped = looped;
 }
 
-void ENCODER::cnangeINTR(void) {                // Interrupt function, called when the channel A of encoder changed
+void ENCODER::changeINTR(void) {                // Interrupt function, called when the channel A of encoder changed
   
   bool rUp = digitalRead(mPIN);
   unsigned long now_t = millis();
@@ -1099,6 +1106,7 @@ class IRON : protected PID {
     const uint16_t heat_expected   = 10;        // The iron should change the temperature at check_time
 	  const uint32_t check_iron_ms   = 1000;      // The period in ms to check Whether the IRON is conected
     const uint32_t check_temp_ms   = 100;       // time frame for check iron tempreture
+    const uint16_t Overshoot_temp  = 700; //28mv 673C 
     uint32_t next_check_temp_time_ms   = 0;       //next time in millis for checking iron tempreture. 
                                                   //  should be set to mills() + check_temp_ms when one tempreture check is completed
     boolean workState = false;                   // iron is in working state when value is TRUE, otherwise in sleeping state
@@ -1216,10 +1224,11 @@ void IRON::keepTemp(void) {
     nlSensorReading = normalize(sensorReadingRaw);
     sensorMvf = convertSensorRaw2MV(sensorReadingRaw);
     dpint("keepTemp getTemp()= ",  getTemp() );
+    dpint("keepTemp getMaxTemp()= ", getMaxTemp() );
     if (on){
       no_iron = false;//TODO
       uint16_t targetTemp = getTemp();
-      if (paddleDown) targetTemp = getMaxTemp();
+      if (paddleDown) targetTemp = Overshoot_temp; //getMaxTemp();
       dpint("targetTemp = ", targetTemp);
       if( (uint16_t)nlSensorReading > targetTemp ){//TODO fine tuning heating algorithm          
             fastPWM.off();   
@@ -2168,11 +2177,11 @@ const uint32_t period_ticks = (31250 * check_period)/1000-33-5;
 // }
 
 void rotEncChange(void) {
-  rotEncoder.cnangeINTR();
+  rotEncoder.changeINTR();
 }
 
 void rotPushChange(void) {
-  rotButton.cnangeINTR();
+  rotButton.changeINTR();
 }
 
 // the setup routine runs once when you press reset:
