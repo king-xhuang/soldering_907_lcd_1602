@@ -18,14 +18,21 @@
 #include <EEPROM.h>
 
 #include <Wire.h>
-#include <Adafruit_INA219.h>
+//#include <Adafruit_INA219.h>
+
+#include <INA226.h>
+
+INA226 ina;
 
 
-
-Adafruit_INA219 ina219;
+//Adafruit_INA219 ina219;
 // pin implicitly used by I2C libiary
 const byte colck_pin = A5;   // wired to INA219 SCL
 const byte data_pin = A4;    // wired to INA219 SDA
+
+const char HeaterTypeIron = 'I';  // Iron
+const char HeaterTypeHAG = 'A';  // Hot air gun
+char heaterType = HeaterTypeIron;
 
 // The LCD 1602 parallel interface
 const byte LCD_RS_PIN     = 13;
@@ -42,10 +49,17 @@ const byte R_BUTN_PIN = 3;                      // Rotary Encoder push button pi
 
 const byte probePIN  = A0;                      // NOT used // Thermometer pin from soldering iron  
 const byte paddlePIN = 9;                       // paddle pin
-const byte heaterPIN = 10;                      // The soldering iron heater pin
+const byte ironHeaterPIN = 10;                      // The soldering iron heater pin
 const byte buzzerPIN = 11;                      // The simple buzzer to make a noise
 
+// hot air gun
+const byte iron_hag_swPIN  = A0;  // in pullup, iron and HotAirGun hand switch PIN  ???
+const byte hagHeaterPIN = A1;        // out 0/1 to turn off/on hot air gun heater
+const byte blowerPIN = A2;        // out 0/1 to turn off/on  hot air blower fan, switch 
+                                    //tempreture sensor between iron and HAG
+const byte hagSleepPIN = A3;        // in, when put HAG upward, position switch on
 
+// iron temp setting
 const uint16_t temp_minC = 180;                 // Minimum temperature in degrees of celsius
 const uint16_t temp_maxC = 400;                 // Maximum temperature in degrees of celsius
 const uint16_t temp_minF = (temp_minC *9 + 32*5 + 2)/5;
@@ -78,16 +92,24 @@ int16_t normalize(uint16_t t){ // normalize the sensor reading into 10 bits rang
 }
 
 void initADC() { // initialize ADC
-  Serial.println("initialize INA219");  
-  // initialize serial communication at 9600 bits per second: 
- 
-  ina219.begin();  // Initialize first board (default address 0x40)
-  //ina219.setCalibration_NO_BUS_320mv ();  // use Vin pins to measure voltage without shunt resistor
-  ina219.setCalibration_NO_BUS_40mv(); 
+  //Serial.println("initialize INA219");   
+  // ina219.begin();  // Initialize first board (default address 0x40)  
+  // ina219.setCalibration_NO_BUS_40mv(); 
+
+  Serial.println("initialize INA226");   
+  ina.begin();
+
+  // Configure INA226
+  ina.configure(INA226_AVERAGES_4, INA226_BUS_CONV_TIME_1100US, INA226_SHUNT_CONV_TIME_1100US, INA226_MODE_SHUNT_CONT);
+
+  // Calibrate INA226. Rshunt = 0.01 ohm, Max excepted current = 4A
+  ina.calibrate(0.01, 4);
+
 }   
 
 int16_t readSensorRaw(){ // read sensor through INA219 adc converter, LSB = 10uV
-  return ina219.getShuntVoltage_raw();
+// read sensor through INA226 adc converter, LSB = 2.5uV, devided by four to show thermal voltage in unit of 10uV
+  return   ina.readShuntVoltageRaw() >> 2;
 }
 
 float convertSensorRaw2MV(int16_t sensorRaw){   
@@ -303,12 +325,11 @@ void CONFIG::clearAll(void) {
     EEPROM.write(i, 0);
   init();
   load();
-}
-
-//------------------------------------------ class IRON CONFIG -------------------------------------------------
-class IRON_CFG : public CONFIG {
+} 
+//--------- HEATER Config ----------
+class Heater_CFG : public CONFIG {
   public:
-    IRON_CFG()                                  { current_tip = 0; t_tip[0] = t_tip[1] = t_tip[2] = 0; is_calibrated = false; }
+    Heater_CFG()                                  { current_tip = 0; t_tip[0] = t_tip[1] = t_tip[2] = 0; is_calibrated = false; }
     void     init(void);
     bool     isCelsius(void)                    { return true; } //Config.celsius; }
     bool     isCold(uint16_t temp);             // Whether the IRON is temperature is low
@@ -325,36 +346,32 @@ class IRON_CFG : public CONFIG {
     void     getCalibrationData(uint16_t& t_min, uint16_t& t_mid, uint16_t& t_max);
     void     saveCalibrationData(uint16_t t_min, uint16_t t_mid, uint16_t t_max);
     void     setDefaults(bool Write = false);   // Set default parameter values if failed to load data from EEPROM
-  private:
+     
+  protected:
      
     byte     current_tip;                       // The current tip index
     bool     is_calibrated;                     // whether the tip has calibrated data
-    // t_tip[] - array of internal sensor readings of the current tip at reference temperatures,
-    // defined in temp_tip[] global array
-    uint16_t t_tip[3];
-    // const uint16_t def_tip[3] = {587, 751, 916};// Default values of internal sensor readings at reference temperatures
-    // const uint16_t def_set = 653;               // Default preset temperature in internal units
-    // const uint16_t ambient_temp  = 300;         // Ambient temperatire in the internal units
-    // const uint16_t ambient_tempC = 25;          // Ambient temperature in Celsius
     
-    const uint16_t def_tip[3] = {normalize(1138), normalize(1800), normalize(2461)};// TODO change the default for a IAN219 adc and K type thermal
+    uint16_t t_tip[3];
+    
+    uint16_t def_tip[3]; // = {normalize(1138), normalize(1800), normalize(2461)};// TODO change the default for a IAN219 adc and K type thermal
     // Default values of internal sensor readings at 
     // reference temperatures for K type thermal tempretures in C: 280, 437, 593 -- this thermal temp NOT tip's
-    const uint16_t def_set = normalize(1800);               // Default preset temperature in internal units
-    const uint16_t ambient_temp  = normalize(100);         // Ambient temperatire in the internal units
-    const uint16_t ambient_tempC = 25;          // Ambient temperature in Celsius
+    uint16_t def_set = normalize(1800);               // Default preset temperature in internal units
+    uint16_t ambient_temp  = normalize(100);         // Ambient temperatire in the internal units
+    uint16_t ambient_tempC = 25;          // Ambient temperature in Celsius
 };
 
-void IRON_CFG::init(void) {
+void Heater_CFG::init(void) {
   CONFIG::init();
   if (!CONFIG::load()) setDefaults();           // If failed to load the data from EEPROM, initialize the config data with default values
   uint32_t   cd = Config.calibration;
   t_tip[0] = cd & 0x3FF; cd >>= 10;             // 10 bits per calibration parameter, because the ADC readings are 10 bits
   t_tip[1] = cd & 0x3FF; cd >>= 10;
   t_tip[2] = cd & 0x3FF;
-  dpint("IRON_CFG::init t_tip[0]=", t_tip[0]);
-  dpint("IRON_CFG::init t_tip[1]=", t_tip[1]);
-  dpint("IRON_CFG::init t_tip[2]=", t_tip[2]);
+  dpint("Heater_CFG::init t_tip[0]=", t_tip[0]);
+  dpint("Heater_CFG::init t_tip[1]=", t_tip[1]);
+  dpint("Heater_CFG::init t_tip[2]=", t_tip[2]);
   
   // Check the tip calibration is correct
   if ((t_tip[0] >= t_tip[1]) || (t_tip[1] >= t_tip[2])) {
@@ -362,23 +379,23 @@ void IRON_CFG::init(void) {
     for (byte i = 0; i < 3; ++i)
       t_tip[i] = def_tip[i];
     
-    dpB("IRON_CFG::init use def ", true);
-    dpint("IRON_CFG::init t_tip[0]=", t_tip[0]);
-    dpint("IRON_CFG::init t_tip[1]=", t_tip[1]);
-    dpint("IRON_CFG::init t_tip[2]=", t_tip[2]); 
+    dpB("Heater_CFG::init use def ", true);
+    dpint("Heater_CFG::init t_tip[0]=", t_tip[0]);
+    dpint("Heater_CFG::init t_tip[1]=", t_tip[1]);
+    dpint("Heater_CFG::init t_tip[2]=", t_tip[2]); 
   
   }
 }
 
-bool IRON_CFG::isCold(uint16_t temp) {
+bool Heater_CFG::isCold(uint16_t temp) {
   return (temp < t_tip[0]) && (map(temp, ambient_temp, t_tip[0], ambient_tempC, temp_tip[0]) < 32);
 }
 
-uint16_t IRON_CFG::tempPresetHuman(void) {
+uint16_t Heater_CFG::tempPresetHuman(void) {
   return tempHuman(tempPreset());
 }
 
-uint16_t IRON_CFG::human2temp(uint16_t t) {     // Translate the human readable temperature into internal value
+uint16_t Heater_CFG::human2temp(uint16_t t) {     // Translate the human readable temperature into internal value
   uint16_t temp = t;
   // if (!Config.celsius)
   //   temp = map(temp, temp_minF, temp_maxF, temp_minC, temp_maxC);
@@ -398,7 +415,7 @@ uint16_t IRON_CFG::human2temp(uint16_t t) {     // Translate the human readable 
 }
 
 // Thanslate temperature from internal units to the human readable value (Celsius or Farenheit)
-uint16_t IRON_CFG::tempHuman(uint16_t temp) {
+uint16_t Heater_CFG::tempHuman(uint16_t temp) {
   uint16_t tempH = 0;
    
   if (temp < ambient_temp) {
@@ -416,30 +433,30 @@ uint16_t IRON_CFG::tempHuman(uint16_t temp) {
   return tempH;
 }
 
-bool IRON_CFG::savePresetTempHuman(uint16_t temp) {
+bool Heater_CFG::savePresetTempHuman(uint16_t temp) {
   Config.temp = human2temp(temp);
   return CONFIG::save();
 }
 
-bool IRON_CFG::savePresetTemp(uint16_t temp) {
+bool Heater_CFG::savePresetTemp(uint16_t temp) {
   Config.temp = temp;
   return CONFIG::save();
 }
 
-void IRON_CFG::saveConfig(byte off, bool cels) {
+void Heater_CFG::saveConfig(byte off, bool cels) {
   if (off > 30) off = 0;
   Config.off_timeout = off;
   Config.celsius = cels;
   CONFIG::save();                               // Save new data into the EEPROM
 }
 
-void IRON_CFG::getCalibrationData(uint16_t& t_min, uint16_t& t_mid, uint16_t& t_max) {
+void Heater_CFG::getCalibrationData(uint16_t& t_min, uint16_t& t_mid, uint16_t& t_max) {
   t_min = t_tip[0];
   t_mid = t_tip[1];
   t_max = t_tip[2];
 }
 
-void IRON_CFG::saveCalibrationData(uint16_t t_min, uint16_t t_mid, uint16_t t_max) {
+void Heater_CFG::saveCalibrationData(uint16_t t_min, uint16_t t_mid, uint16_t t_max) {
   uint32_t cd = t_max & 0x3FF; cd <<= 10;       // Pack tip calibration data in one 32-bit word: 10-bits per value
   cd |= t_mid & 0x3FF; cd <<= 10;
   cd |= t_min;
@@ -450,8 +467,8 @@ void IRON_CFG::saveCalibrationData(uint16_t t_min, uint16_t t_mid, uint16_t t_ma
   t_tip[2] = t_max;
 } 
 
-void IRON_CFG::setDefaults(bool Write) {
-  dpB("IRON_CFG::setDefaults can write = ", Write);
+void Heater_CFG::setDefaults(bool Write) {
+  dpB("Heater_CFG::setDefaults can write = ", Write);
   uint32_t c = def_tip[2] & 0x3FF; c <<= 10;
   c |= def_tip[1] & 0x3FF;         c <<= 10;
   c |= def_tip[0] & 0x3FF;
@@ -464,6 +481,38 @@ void IRON_CFG::setDefaults(bool Write) {
     CONFIG::save();
   }
 }
+//------------------------------------------ class IRON CONFIG -------------------------------------------------
+class IRON_CFG : public Heater_CFG { 
+    public:
+    void     init(void){
+      def_tip[0] = normalize(1138);// TODO change the default for a IAN219 adc and K type thermal
+      def_tip[1] = normalize(1800);
+      def_tip[2] = normalize(2461);
+      // Default values of internal sensor readings at 
+      // reference temperatures for K type thermal tempretures in C: 280, 437, 593 -- this thermal temp NOT tip's
+      def_set = normalize(1800);               // Default preset temperature in internal units
+      ambient_temp  = normalize(100);         // Ambient temperatire in the internal units
+      ambient_tempC = 25;          // Ambient temperature in Celsius
+      Heater_CFG::init();
+   }  
+    
+}; 
+//------------------------------------------ class Hot Air Gun CONFIG -------------------------------------------------
+class HAG_CFG : public Heater_CFG { 
+    public:
+    void     init(void){
+      def_tip[0] = normalize(1138);// TODO change the default for hot air gun 
+      def_tip[1] = normalize(1800);
+      def_tip[2] = normalize(2461);
+      // Default values of internal sensor readings at 
+      // reference temperatures for K type thermal tempretures in C: 280, 437, 593 -- this thermal temp NOT tip's
+      def_set = normalize(1800);               // Default preset temperature in internal units
+      ambient_temp  = normalize(100);         // Ambient temperatire in the internal units
+      ambient_tempC = 25;          // Ambient temperature in Celsius
+      Heater_CFG::init();
+   }  
+    
+}; 
 
  
 
@@ -672,6 +721,7 @@ class DSPL : protected LiquidCrystal {
     void setupMode(byte mode, byte p = 0);      // Show the configureation mode [0 - 2]
     void percent(byte Power);                   // Show the percentage
     void overShoot(int os);                     // show overshoot left time in seconds
+    void msgHeaterType(char ty);                   // show heater type I - iron, H - hot air gun
   private:
     bool full_second_line;                      // Wether the second line is full with the message
     const byte degree[8] = {
@@ -748,7 +798,11 @@ void DSPL::msgNoIron(void) {
   LiquidCrystal::print(F("    no iron     "));
   full_second_line = true;
 }
-
+  
+void DSPL::msgHeaterType(char ty){
+  LiquidCrystal::setCursor(10, 0);    
+  LiquidCrystal::print(ty);
+}
 void DSPL::msgReady(void) {
   LiquidCrystal::setCursor(5, 0);
   LiquidCrystal::print(F("      ready"));
@@ -760,13 +814,13 @@ void DSPL::msgWorking(void) {
 }
 
 void DSPL::msgOn(void) {
-  LiquidCrystal::setCursor(12, 0);
-  LiquidCrystal::print(F("  ON"));
+  LiquidCrystal::setCursor(14, 0);
+  LiquidCrystal::print(F("ON"));
 }
 
 void DSPL::msgOff(void) {
-  LiquidCrystal::setCursor(5, 0);
-  LiquidCrystal::print(F("        OFF"));
+  LiquidCrystal::setCursor(13, 0);
+  LiquidCrystal::print(F("OFF"));
 }
 
 void DSPL::msgCold(void) {
@@ -1019,16 +1073,16 @@ class FastPWM {
     FastPWM()                                   { }
     void init(void);
     //void duty(byte d)                           { OCR1B = d; }
-    void duty(byte d)                             { //analogWrite(heaterPIN, d); 
+    void duty(byte d)                             { //analogWrite(ironHeaterPIN, d); 
      
     }
-    void on()            { digitalWrite(heaterPIN, HIGH);}  //
-    void off()           { digitalWrite(heaterPIN, LOW);}
+    void on()            { digitalWrite(ironHeaterPIN, HIGH);}  //
+    void off()           { digitalWrite(ironHeaterPIN, LOW);}
 };
 
 void FastPWM::init(void) {
-  pinMode(heaterPIN, OUTPUT);                          // Use D10 pin for heationg the IRON
-  digitalWrite(heaterPIN, LOW);                        // Switch-off the power
+  pinMode(ironHeaterPIN, OUTPUT);                          // Use D10 pin for heationg the IRON
+  digitalWrite(ironHeaterPIN, LOW);                        // Switch-off the power
   tmr1_count = 0;
   //iron_off = false; 
   // noInterrupts();
@@ -1042,13 +1096,44 @@ void FastPWM::init(void) {
   // TIMSK1  = _BV(TOIE1);                         // Enable overflow interrupts @31250 Hz
   // interrupts();
 }
+class HotAirGun{
+  public:
+    HotAirGun(byte heaterPIN, byte sleepPIN, byte fanPIN){
+      hPIN = heaterPIN;
+      slpPIN = sleepPIN;
+      fPIN = fanPIN;
+    }
+    void  init(void){  pinMode(hPIN, OUTPUT);
+                          pinMode(fPIN, OUTPUT);
+                          pinMode(slpPIN, INPUT_PULLUP);
+                          fanOff();
+                          off();
+                          }
+    void  checkHAG(void);                   // Check the IRON, stop it in case of emergency
+    void  keepTemp(void); 
+    void  fanOn(void){ digitalWrite(fPIN, HIGH); }
+    void  fanOff(void){ digitalWrite(fPIN, LOW); }
+    void  on(void){ fanOn();
+                       digitalWrite(hPIN, HIGH); }
+    void  off(void){ digitalWrite(hPIN, LOW); }
+    void  stop(void){ off(); fanOff(); }
+  private:
+    byte  slpPIN;
+    byte  hPIN;   
+    byte  fPIN;  
+}; 
+void HotAirGun::checkHAG(void){//TODO
 
+}
+void HotAirGun::keepTemp(void){//TODO
+
+}
 //------------------------------------------ class soldering iron ---------------------------------------------
 class IRON : protected PID {
   public:
-    IRON(byte heater_pin, byte sensor_pin) {
+    IRON(byte heater_pin) {
       hPIN = heater_pin;
-      sPIN = sensor_pin;
+      //sPIN = sensor_pin;
       on = false;
       fix_power = false;
       no_iron = false;//TODO
@@ -1083,7 +1168,7 @@ class IRON : protected PID {
   private:
     FastPWM  fastPWM;                           // Power the IRON using fast PWM through D10 pin using Timer1
     uint32_t check_ironMS;                      // Milliseconds when to check the IRON is connected
-    byte     hPIN, sPIN;                        // The heater PIN and the sensor PIN
+    byte     hPIN;                        // The heater PIN and the sensor PIN
     int      power;                             // The soldering station power
     byte     actual_power;                      // The power supplied to the iron
     bool     fix_power;                         // Whether the soldering iron is set the fix power
@@ -1216,6 +1301,9 @@ void IRON::checkIron(void) {
 }
 
 void IRON::keepTemp(void) {
+  dpB("iron on= ", on);
+
+  delay(500);
   if (!on) fastPWM.off();
   
   if (millis() >= next_check_temp_time_ms){
@@ -1223,8 +1311,9 @@ void IRON::keepTemp(void) {
     sensorReadingRaw =  readSensorRaw();
     nlSensorReading = normalize(sensorReadingRaw);
     sensorMvf = convertSensorRaw2MV(sensorReadingRaw);
-    dpint("keepTemp getTemp()= ",  getTemp() );
-    dpint("keepTemp getMaxTemp()= ", getMaxTemp() );
+    dpint("raw = ", nlSensorReading);
+    // dpint("keepTemp getTemp()= ",  getTemp() );
+    // dpint("keepTemp getMaxTemp()= ", getMaxTemp() );
     if (on){
       no_iron = false;//TODO
       uint16_t targetTemp = getTemp();
@@ -2133,8 +2222,10 @@ SCREEN* pidSCREEN::menu_long(void) {
 DSPL       disp(LCD_RS_PIN, LCD_E_PIN, LCD_DB4_PIN, LCD_DB5_PIN, LCD_DB6_PIN, LCD_DB7_PIN);
 ENCODER    rotEncoder(R_MAIN_PIN, R_SECD_PIN);
 BUTTON     rotButton(R_BUTN_PIN);
-IRON       iron(heaterPIN, probePIN);
+IRON       iron(ironHeaterPIN);
 IRON_CFG   ironCfg;
+HAG_CFG    hagCfg;
+HotAirGun  hag(hagHeaterPIN, hagSleepPIN, blowerPIN);
  
 BUZZER     simpleBuzzer(buzzerPIN);
 
@@ -2188,17 +2279,22 @@ void rotPushChange(void) {
 void setup() {
   Serial.begin(9600);//TODO
   pinMode(paddlePIN, INPUT_PULLUP);
+  pinMode(iron_hag_swPIN, INPUT_PULLUP); 
+  pinMode(blowerPIN, OUTPUT); //set sensor input to iron's
+  digitalWrite(blowerPIN, LOW);
   simpleBuzzer.init();
   simpleBuzzer.shortBeep();
   simpleBuzzer.failedBeep();
   initADC();
   disp.init();
-
+   
   // Load configuration parameters
   ironCfg.init();
   iron.init();
   uint16_t temp = ironCfg.tempPreset();
   iron.setTemp(temp);
+
+  hag.init();
 
   // Initialize rotary encoder
   rotEncoder.init();
@@ -2227,25 +2323,54 @@ void setup() {
 
 }
 
+char checkHeaterType( ){
+  int b = digitalRead(iron_hag_swPIN);
+  
+  if (b == HIGH){
+    heaterType = HeaterTypeIron;
+  }else{
+    heaterType = HeaterTypeHAG;
+  }
+
+  //dpint("heater type ", b);
+  return heaterType;
+}
+
+boolean isIron(){
+  return heaterType == HeaterTypeIron;
+}
 // The main loop
 void loop() {
   static int16_t old_pos = rotEncoder.read();
-  checkPaddle();
-  if ( paddleDown  && (pCurrentScreen != &wrkScr)){
-        pCurrentScreen = &wrkScr;
-        pCurrentScreen->init();
-  }
-  iron.checkIron();       // Periodically check that the IRON works correctrly
-  // Serial.print("getTemp()=");
-  // Serial.println(iron.getTemp());
-  iron.keepTemp();      
-  //delay(1000);//TODO test
-  bool iron_on = iron.isOn();
-  //dpB("iron_on ", iron_on);
-  if ((pCurrentScreen == &wrkScr) && !iron_on) {  // the soldering iron failed
-    pCurrentScreen = &errScr;
-    pCurrentScreen->init();
-  }
+  checkHeaterType();
+  //delay(1000);
+  //if (isIron()){
+    hag.fanOff();//TODO 
+    checkPaddle();
+    if ( paddleDown  && (pCurrentScreen != &wrkScr)){
+          pCurrentScreen = &wrkScr;
+          pCurrentScreen->init();
+    }
+    iron.checkIron();       // Periodically check that the IRON works correctrly
+    // Serial.print("getTemp()=");
+    // Serial.println(iron.getTemp());
+    iron.keepTemp();      
+    //delay(1000);//TODO test
+    bool iron_on = iron.isOn();
+    //dpB("iron_on ", iron_on);
+    if ((pCurrentScreen == &wrkScr) && !iron_on) {  // the soldering iron failed
+      pCurrentScreen = &errScr;
+      pCurrentScreen->init();
+    }
+
+  // }
+  // else{  // hot air gun
+  //   iron.switchPower(false);
+  //   hag.fanOn();
+  //   hag.checkHAG();
+  //   hag.keepTemp();
+  // }
+  
   
 
   SCREEN* nxt = pCurrentScreen->returnToMain();
