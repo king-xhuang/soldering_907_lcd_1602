@@ -718,6 +718,8 @@ class DSPL : protected LiquidCrystal {
     void msgReady(void);                        // Show 'Ready' message
     void msgWorking(void);                      // Show 'Working' message
     void msgOn(void);                           // Show 'On' message
+    void msgOnSusp(void);                       // Show 'Sp' -suspend message while hot air gun heater is still active
+    void msgOnWarm(void);                       // Show 'Wm' - iron warn message while iron heater is still active
     void msgOff(void);                          // Show 'Off' message
     void msgCold(void);                         // Show 'Cold' message
     void msgFail(void);                         // Show 'Fail' message
@@ -826,13 +828,24 @@ void DSPL::msgWorking(void) {
 }
 
 void DSPL::msgOn(void) {
-  LiquidCrystal::setCursor(14, 0);
-  LiquidCrystal::print(F("ON"));
+    
+  LiquidCrystal::setCursor(12, 0);
+  LiquidCrystal::print(F("  ON"));
+}
+
+void DSPL::msgOnSusp(void) {    
+  LiquidCrystal::setCursor(12, 0);
+  LiquidCrystal::print(F("OnSp"));
+}
+
+void DSPL::msgOnWarm(void) {    
+  LiquidCrystal::setCursor(12, 0);
+  LiquidCrystal::print(F("OnWm"));
 }
 
 void DSPL::msgOff(void) {
-  LiquidCrystal::setCursor(13, 0);
-  LiquidCrystal::print(F("OFF"));
+  LiquidCrystal::setCursor(12, 0);
+  LiquidCrystal::print(F(" OFF"));
 }
 
 void DSPL::msgCold(void) {
@@ -1045,6 +1058,7 @@ class Heater {
         else off();
     }
     bool  virtual isIron(void){}
+    bool  virtual isSleep(void){}
     void  virtual init(void){}
     void  virtual keepTemp(void){}
     void  virtual on(void){}
@@ -1145,6 +1159,7 @@ class IRON : public Heater {
       check_temp_ms   = 100;       // time frame for check iron tempreture       
     }
     bool  isIron(void){ return true; }
+    bool  isSleep(void) { return  false; }  //TODO
     void on(void){  digitalWrite(hPIN, HIGH);}
     void off(void){  digitalWrite(hPIN, LOW);}
     void     init(void);       
@@ -1555,6 +1570,17 @@ class workSCREEN : public SCREEN {
       pCfg = cf;
       //init();
     }
+    void msgOn(void){
+      if (pIron->isSleep()){
+        if (pIron->isIron()) {
+          pD->msgOnWarm();       
+        }else{
+          pD->msgOnSusp();
+        }
+      }else{
+        pD->msgOn();
+      }
+    }
     virtual void init(void);
     virtual void show(void);
     virtual void rotaryValue(int16_t value);
@@ -1599,7 +1625,8 @@ void workSCREEN::init(void) {
   pD->clear();
   pD->tSet(tempH, is_celsius);
   pD->msgHeaterType(heaterType);
-  pD->msgOn();
+  msgOn();
+  
   uint16_t to = pCfg->getOffTimeout() * 60;
   this->setSCRtimeout(to);
   //idle_power.init();
@@ -1609,7 +1636,7 @@ void workSCREEN::init(void) {
 
 void workSCREEN::rotaryValue(int16_t value) {
   ready = false;
-  pD->msgOn();
+  msgOn(); //pD->msgOn();
   update_screen = millis() + period;
   uint16_t temp = pCfg->human2temp(value);
   pIron->setTemp(temp);
@@ -1676,7 +1703,7 @@ void workSCREEN::show(void) {
       pD->msgReady();
     }
   } else {
-    pD->msgOn();
+    msgOn(); //pD->msgOn();
   }
   dpS(">>>> workSCREEN::show   ");
 
