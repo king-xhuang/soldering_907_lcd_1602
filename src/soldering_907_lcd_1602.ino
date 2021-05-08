@@ -1095,6 +1095,7 @@ class HotAirGun: public Heater{
                        digitalWrite(hPIN, HIGH); }
     void  off(void){ digitalWrite(hPIN, LOW); }
     void  stop(void){ off(); fanOff(); }
+    bool  isSleep(void) { return digitalRead(slpPIN) == LOW; }
   private:
     byte  slpPIN;
     byte  hPIN;   
@@ -1119,7 +1120,7 @@ void HotAirGun::keepTemp(void){//TODO
     uint16_t targetTemp = getTemp();
     // if (paddleDown) targetTemp = Overshoot_temp; //getMaxTemp();
     dpint("targetTemp = ", targetTemp); 
-    if (!isOn){
+    if (!isOn || isSleep()){
       off(); 
       dpS("HAG is off");
      //delay(100);
@@ -1127,7 +1128,7 @@ void HotAirGun::keepTemp(void){//TODO
     else{
       if( (uint16_t)nlSensorReading > targetTemp ){//TODO fine tuning heating algorithm          
           off();   
-      }else{
+      }else{        
         on();
       }
     }
