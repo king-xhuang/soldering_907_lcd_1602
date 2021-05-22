@@ -90,7 +90,7 @@ volatile bool   activeIron = false;; //true;  // TRUE - use IRON, FLASE -use hot
 byte adcType = 1; // INA219 + K type thermal
 int16_t normalize(uint16_t t){ // normalize the sensor reading into 10 bits range
     if (adcType == 1){
-        return t >> 2; // devided by 4  
+        return t; //  
     }
     else return t;//TODO
 }
@@ -119,8 +119,7 @@ int16_t readSensorRaw(){ // read sensor through INA219 adc converter, LSB = 10uV
 
 float convertSensorRaw2MV(int16_t sensorRaw){   
   return  sensorRaw * 0.01;
-}
- 
+} 
 
 void dpint(String s, int16_t t){
   Serial.print(s);Serial.println(t);
@@ -175,164 +174,147 @@ struct cfg {
   bool     celsius;                             // Temperature units: true - Celsius, false - Farenheit
   
 };
+struct cfgRec {
+  byte index;                         // record index; 1 based
+  bool isIron = true;                 // heater type iron/
+  uint16_t calibrations[3];           // The temperature calibration data for soldering IRON. (3 reference points: 200, 300, 400 Centegrees)
+  uint16_t temp;                      //
+  byte     off_timeout;               // The Automatic switch-off timeout in minutes [0 - 30]
+  bool     celsius = true;  
+};
 
 class CONFIG {
   public:
-    CONFIG() {
-      can_write     = false;
-      buffRecords   = 0;
-      rAddr = wAddr = 0;
-      eLength       = 0;
-      nextRecID     = 0;
-      byte rs = sizeof(struct cfg) + 5;               // The total config record size
+    CONFIG() {       
+      eLength       = 0; 
+      record_size = sizeof(struct cfgRec);
+      //byte rs = sizeof(struct cfg) + 5;               // The total config record size
       // Select appropriate record size; The record size should be power of 2, i.e. 8, 16, 32, 64, ... bytes
-      for (record_size = 8; record_size < rs; record_size <<= 1);
+      //for (record_size = 8; record_size < rs; record_size <<= 1);      
+    } 
+    void print(){ 
+      dpS(  "#####  CONFIG   #####");
+      dpint("totalRec: ", totalRec);
+      dpB("loadRec: ", loadRec);
+      dpint("index: ", index);
+      dpint("eprom length: ", eLength);
+      dpS("CfgRec ");
+      dpB("is iron: ", CfgRec.isIron);
+      dpint("index: ", CfgRec.index);
+      dpint("cal 0: ", CfgRec.calibrations[0]);
+      dpint("cal 1: ", CfgRec.calibrations[1]);
+      dpint("cal 2: ", CfgRec.calibrations[2]);
+      dpint("preset temp: ", CfgRec.temp);
+      dpint("timeout: ", CfgRec.off_timeout);
+      dpS("#####        #####");
+      dpS("                  ");
     }
     void init();
-    bool load(void);
-    void getConfig(struct cfg &Cfg);                  // Copy config structure from this class
-    void updateConfig(struct cfg &Cfg);               // Copy updated config into this class
-    bool save(void);                                  // Save current config copy to the EEPROM
-    bool saveConfig(struct cfg &Cfg);                 // write updated config into the EEPROM
-    void clearAll(void);                              // Clean all EEPROM
+    bool load(void);               
+    void getCfgRec(struct cfgRec &);              // Copy config structure from this class 
+    void updateCfgRec(struct cfgRec &Cfg);        // Copy updated config into this class
+    bool save(void);                                  // Save current config copy to the EEPROM 
+    bool saveCfgRec(struct cfgRec &Cfg);  
+    void clearAll(void);                               // Clean all EEPROM
+    bool findCfgRecByType(bool TypeisIron);           // find the first cfgRec as TypeisTron        
+    //bool findCfgRecByIndex(byte index);           // find the   cfgRec by index      
 
   protected:
-    struct   cfg Config;
-
-  private:
-    bool     readRecord(uint16_t addr, uint32_t &recID);
-    bool     can_write;                               // The flag indicates that data can be saved
-    byte     buffRecords;                             // Number of the records in the outpt buffer
-    uint16_t rAddr;                                   // Address of thecorrect record in EEPROM to be read
-    uint16_t wAddr;                                   // Address in the EEPROM to start write new record
+    
+    struct   cfgRec CfgRec;
+    bool isIron = true;
+     
+    int totalRec = 0;
+    byte loadRec = false;
+    byte index = 0; // i based 
+    byte firstRecAddr = 8;
+    private:
     uint16_t eLength;                                 // Length of the EEPROM, depends on arduino model
-    uint32_t nextRecID;                               // next record ID
     byte     record_size;                             // The size of one record in bytes
+     
+    
 };
 
 
  // Read the records until the last one, point wAddr (write address) after the last record
 void CONFIG::init(void) {
-  eLength = EEPROM.length();
-  uint32_t recID;
-  uint32_t minRecID = 0xffffffff;
-  uint16_t minRecAddr = 0;
-  uint32_t maxRecID = 0;
-  uint16_t maxRecAddr = 0;
-  byte records = 0;
+  totalRec = EEPROM.get(0, totalRec);
+  eLength = EEPROM.length(); 
 
-  nextRecID = 0;
-
-  // read all the records in the EEPROM find min and max record ID
-  for (uint16_t addr = 0; addr < eLength; addr += record_size) {
-    if (readRecord(addr, recID)) {
-      ++records;
-      if (minRecID > recID) {
-        minRecID = recID;
-        minRecAddr = addr;
-      }
-      if (maxRecID < recID) {
-        maxRecID = recID;
-        maxRecAddr = addr;
-      }
-    } else {
-      break;
+}
+bool CONFIG::findCfgRecByType(bool isIron){ 
+  int adr = 0;
+  if(totalRec == 0){
+    loadRec = false;
+    return false;
+  }else{
+    for(int i =  0; i < totalRec; i++ ){
+      adr = i * record_size + firstRecAddr;
+      EEPROM.get(adr, CfgRec );
+      if (CfgRec.isIron == isIron){
+        loadRec = true;
+        index = CfgRec.index;
+        return true;
+      } 
     }
+    return false;
   }
-
-  if (records == 0) {
-    wAddr = rAddr = 0;
-    can_write = true;
-    return;
-  }
-
-  rAddr = maxRecAddr;
-  if (records < (eLength / record_size)) {            // The EEPROM is not full
-    wAddr = rAddr + record_size;
-    if (wAddr > eLength) wAddr = 0;
-  } else {
-    wAddr = minRecAddr;
-  }
-  can_write = true;
+}
+// void CONFIG::getConfig(struct cfg &Cfg) {
+//   memcpy(&Cfg, &Config, sizeof(struct cfg));
+// }
+void CONFIG::getCfgRec(struct cfgRec  &Cfg) {
+  memcpy(&Cfg, &CfgRec, sizeof(struct cfgRec));
+}
+// void CONFIG::updateConfig(struct cfg &Cfg) {
+//   memcpy(&Config, &Cfg, sizeof(struct cfg));
+// }
+void CONFIG::updateCfgRec(struct cfgRec &Cfg) {
+  memcpy(&CfgRec, &Cfg, sizeof(struct cfgRec));
 }
 
-void CONFIG::getConfig(struct cfg &Cfg) {
-  memcpy(&Cfg, &Config, sizeof(struct cfg));
-}
+// bool CONFIG::saveConfig(struct cfg &Cfg) {
+//   updateConfig(Cfg);
+//   return save();                                      // Save new data into the EEPROM
+// }
+bool CONFIG::saveCfgRec(struct cfgRec &Cfg){
+  updateCfgRec(Cfg);
+  return save();
 
-void CONFIG::updateConfig(struct cfg &Cfg) {
-  memcpy(&Config, &Cfg, sizeof(struct cfg));
-}
-
-bool CONFIG::saveConfig(struct cfg &Cfg) {
-  updateConfig(Cfg);
-  return save();                                      // Save new data into the EEPROM
 }
 
 bool CONFIG::save(void) {
-  if (!can_write) return can_write;
-  if (nextRecID == 0) nextRecID = 1;
+  int waddr = firstRecAddr;   
 
-  uint16_t startWrite = wAddr;
-  uint32_t nxt = nextRecID;
-  byte summ = 0;
-  for (byte i = 0; i < 4; ++i) {
-    EEPROM.write(startWrite++, nxt & 0xff);
-    summ <<=2; summ += nxt;
-    nxt >>= 8;
+  if (!loadRec && index == 0){ // add a new rec
+    totalRec = totalRec + 1;
+    loadRec = true;
+    CfgRec.index = totalRec;
+    CfgRec.isIron = isIron;  
+    index = CfgRec.index;
+    EEPROM.put(0, totalRec);
   }
-  byte* p = (byte *)&Config;
-  for (byte i = 0; i < sizeof(struct cfg); ++i) {
-    summ <<= 2; summ += p[i];
-    EEPROM.write(startWrite++, p[i]);
-  }
-  summ ++;                                            // To avoid empty records
-  EEPROM.write(wAddr+record_size-1, summ);
-
-  rAddr = wAddr;
-  wAddr += record_size;
-  if (wAddr > EEPROM.length()) wAddr = 0;
-  nextRecID ++;                                       // Get ready to write next record
+  
+  waddr = (index - 1)*record_size + firstRecAddr;
+  EEPROM.put(waddr, CfgRec);     
   return true;
 }
 
 bool CONFIG::load(void) {
-  bool is_valid = readRecord(rAddr, nextRecID);
-  nextRecID ++;
+  bool is_valid = findCfgRecByType(isIron);
   dpB("CONFIG::load success ", is_valid);
   return is_valid;
 }
-
-bool CONFIG::readRecord(uint16_t addr, uint32_t &recID) {
-  byte Buff[record_size];
-
-  for (byte i = 0; i < record_size; ++i) 
-    Buff[i] = EEPROM.read(addr+i);
-  
-  byte summ = 0;
-  for (byte i = 0; i < sizeof(struct cfg) + 4; ++i) {
-
-    summ <<= 2; summ += Buff[i];
-  }
-  summ ++;                                            // To avoid empty fields
-  if (summ == Buff[record_size-1]) {                  // Checksumm is correct
-    uint32_t ts = 0;
-    for (char i = 3; i >= 0; --i) {
-      ts <<= 8;
-      ts |= Buff[byte(i)];
-    }
-    recID = ts;
-    memcpy(&Config, &Buff[4], sizeof(struct cfg));
-    return true;
-  }
-  return false;
-}
+ 
 
 void CONFIG::clearAll(void) {
   for (int i = 0; i < eLength; ++i)
     EEPROM.write(i, 0);
-  init();
-  load();
+  
+  totalRec = 0;
+  EEPROM.put(0, totalRec);
+  // init();
+  // load();
 } 
 //--------- HEATER Config ----------
 class Heater_CFG : public CONFIG {
@@ -346,7 +328,7 @@ class Heater_CFG : public CONFIG {
     uint16_t human2temp(uint16_t temp);         // Translate the human readable temperature into internal value
     uint16_t tempHuman(uint16_t temp);          // Thanslate temperature from internal units to the human readable value (Celsius or Farenheit)
     byte     selectTip(byte index);             // Select new tip, return selected tip index
-    byte     getOffTimeout(void)                { return Config.off_timeout; }
+    byte     getOffTimeout(void)                { return CfgRec.off_timeout; }
     bool     getTempUnits(void)                 { return true; } //Config.celsius; }
     bool     savePresetTempHuman(uint16_t temp);// Save preset temperature in the human readable units
     bool     savePresetTemp(uint16_t temp);     // Save preset temperature in the internal units (convert it to the human readable units)
@@ -372,27 +354,25 @@ class Heater_CFG : public CONFIG {
 
 void Heater_CFG::init(void) {
   CONFIG::init();
-  if (!CONFIG::load()) setDefaults();           // If failed to load the data from EEPROM, initialize the config data with default values
-  uint32_t   cd = Config.calibration;
-  t_tip[0] = cd & 0x3FF; cd >>= 10;             // 10 bits per calibration parameter, because the ADC readings are 10 bits
-  t_tip[1] = cd & 0x3FF; cd >>= 10;
-  t_tip[2] = cd & 0x3FF;
-  dpint("Heater_CFG::init t_tip[0]=", t_tip[0]);
-  dpint("Heater_CFG::init t_tip[1]=", t_tip[1]);
-  dpint("Heater_CFG::init t_tip[2]=", t_tip[2]);
+  bool loadCFG = CONFIG::load();
+  if (loadCFG){
+    t_tip[0] = CfgRec.calibrations[0];            
+    t_tip[1] = CfgRec.calibrations[1];
+    t_tip[2] = CfgRec.calibrations[2];
+  }   
+  else {
+    setDefaults();
+  } 
   
   // Check the tip calibration is correct
   if ((t_tip[0] >= t_tip[1]) || (t_tip[1] >= t_tip[2])) {
     setDefaults();
-    for (byte i = 0; i < 3; ++i)
-      t_tip[i] = def_tip[i];
-    
-    dpB("Heater_CFG::init use def ", true);
-    dpint("Heater_CFG::init t_tip[0]=", t_tip[0]);
-    dpint("Heater_CFG::init t_tip[1]=", t_tip[1]);
-    dpint("Heater_CFG::init t_tip[2]=", t_tip[2]); 
+  } 
+    // dpS("Heater_CFG::init()");
+    // dpint("Heater_CFG::init t_tip[0]=", t_tip[0]);
+    // dpint("Heater_CFG::init t_tip[1]=", t_tip[1]);
+    // dpint("Heater_CFG::init t_tip[2]=", t_tip[2]); 
   
-  }
 }
 
 bool Heater_CFG::isCold(uint16_t temp) {
@@ -442,19 +422,19 @@ uint16_t Heater_CFG::tempHuman(uint16_t temp) {
 }
 
 bool Heater_CFG::savePresetTempHuman(uint16_t temp) {
-  Config.temp = human2temp(temp);
+  CfgRec.temp = human2temp(temp);
   return CONFIG::save();
 }
 
 bool Heater_CFG::savePresetTemp(uint16_t temp) {
-  Config.temp = temp;
+  CfgRec.temp = temp;
   return CONFIG::save();
 }
 
 void Heater_CFG::saveConfig(byte off, bool cels) {
   if (off > 30) off = 0;
-  Config.off_timeout = off;
-  Config.celsius = cels;
+  CfgRec.off_timeout = off;
+  CfgRec.celsius = cels;
   CONFIG::save();                               // Save new data into the EEPROM
 }
 
@@ -465,34 +445,37 @@ void Heater_CFG::getCalibrationData(uint16_t& t_min, uint16_t& t_mid, uint16_t& 
 }
 
 void Heater_CFG::saveCalibrationData(uint16_t t_min, uint16_t t_mid, uint16_t t_max) {
-  uint32_t cd = t_max & 0x3FF; cd <<= 10;       // Pack tip calibration data in one 32-bit word: 10-bits per value
-  cd |= t_mid & 0x3FF; cd <<= 10;
-  cd |= t_min;
+  CfgRec.calibrations[0] = t_min; 
+  CfgRec.calibrations[1] = t_mid; 
+  CfgRec.calibrations[2] = t_max; 
 
-  Config.calibration = cd;
   t_tip[0] = t_min;
   t_tip[2] = t_mid;
   t_tip[2] = t_max;
 } 
 
 void Heater_CFG::setDefaults(bool Write) {
-  dpB("Heater_CFG::setDefaults can write = ", Write);
-  uint32_t c = def_tip[2] & 0x3FF; c <<= 10;
-  c |= def_tip[1] & 0x3FF;         c <<= 10;
-  c |= def_tip[0] & 0x3FF;
-  Config.calibration = c;
-  Config.temp        = def_set;
-  Config.off_timeout = 0;                       // Default autometic switch-off timeout (disabled)
-  Config.celsius     = true;                    // Default use celsius
-  if (Write) {
-    CONFIG::clearAll();
-    CONFIG::save();
+  for (byte i = 0; i < 3; ++i){
+     t_tip[i] = def_tip[i];
+     CfgRec.calibrations[i] = def_tip[i];
   }
+       
+  CfgRec.temp        = def_set;
+  CfgRec.off_timeout = 10;                       // Default autometic switch-off timeout (disabled)
+  CfgRec.celsius     = true;                    // Default use celsius
+   
+  // if (totalRec == 0){
+  //   CONFIG::clearAll();
+  // }
+  
+  CONFIG::save();
+   
 }
 //------------------------------------------ class IRON CONFIG -------------------------------------------------
 class IRON_CFG : public Heater_CFG { 
     public:
     void     init(void){
+      isIron = true;
       def_tip[0] = normalize(1138);// TODO change the default for a IAN219 adc and K type thermal
       def_tip[1] = normalize(1800);
       def_tip[2] = normalize(2461);
@@ -508,7 +491,8 @@ class IRON_CFG : public Heater_CFG {
 //------------------------------------------ class Hot Air Gun CONFIG -------------------------------------------------
 class HAG_CFG : public Heater_CFG { 
     public:
-    void     init(void){      
+    void     init(void){     
+      isIron = false; 
       // Default values of internal sensor readings at 
       // reference temperatures for K type thermal tempretures 
       def_tip[0] = normalize(814); // 200 TODO change the default for hot air gun 
@@ -2321,10 +2305,27 @@ void setup() {
   tuneScr.main   = &offScr;
   pCurrentScreen->init();
 
+  // 
+  //clearAll(); //needed at the first time running the program or EEPROM is corupted
+  showCfg();
+
+}
+void testWriteCfg(){
+
+}
+void showCfg(){
+  ironCfg.print();
+  hagCfg.print();
+}
+void clearAll(){
+  ironCfg.clearAll();
 }
  
 // The main loop
 void loop() {
+  run();
+}
+void run() {
   dpS("loop --------");
   static int16_t old_pos = rotEncoder.read();
   bool heaterChanged = false; //heaterSW.isHeaterChanged();
