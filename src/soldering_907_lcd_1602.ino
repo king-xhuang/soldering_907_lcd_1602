@@ -25,6 +25,10 @@
 INA226 ina;
 
 
+uint16_t def_HAG[3] = {1017, 1460, 1937};   // Default values of hot air gun sensor in C at 250, 360, 470  
+uint16_t def_IRON[3] = {1138, 1800, 2461};  // Default values of internal sensor readings at 
+      // reference temperatures for K type thermal tempretures in C: 280, 437, 593 -- this thermal temp NOT tip's
+
 //Adafruit_INA219 ina219;
 // pin implicitly used by I2C libiary
 const byte colck_pin = A5;   // wired to INA219 SCL
@@ -476,12 +480,11 @@ class IRON_CFG : public Heater_CFG {
     public:
     void     init(void){
       isIron = true;
-      def_tip[0] = normalize(1138);// TODO change the default for a IAN219 adc and K type thermal
-      def_tip[1] = normalize(1800);
-      def_tip[2] = normalize(2461);
-      // Default values of internal sensor readings at 
-      // reference temperatures for K type thermal tempretures in C: 280, 437, 593 -- this thermal temp NOT tip's
-      def_set = normalize(1800);               // Default preset temperature in internal units
+      def_tip[0] = normalize(def_IRON[0]);// TODO change the default for a IAN219 adc and K type thermal
+      def_tip[1] = normalize(def_IRON[1]);
+      def_tip[2] = normalize(def_IRON[2]);
+      
+      def_set = normalize(def_IRON[1]);               // Default preset temperature in internal units
       ambient_temp  = normalize(100);         // Ambient temperatire in the internal units
       ambient_tempC = 25;          // Ambient temperature in Celsius
       Heater_CFG::init();
@@ -495,11 +498,11 @@ class HAG_CFG : public Heater_CFG {
       isIron = false; 
       // Default values of internal sensor readings at 
       // reference temperatures for K type thermal tempretures 
-      def_tip[0] = normalize(814); // 200 TODO change the default for hot air gun 
-      def_tip[1] = normalize(1220);// 300
-      def_tip[2] = normalize(1640);// 400
+      def_tip[0] = normalize(def_HAG[0]); // 200   change the default for hot air gun 
+      def_tip[1] = normalize(def_HAG[1]);// 300
+      def_tip[2] = normalize(def_HAG[2]);// 400
 
-      def_set = normalize(1220);               // Default preset temperature in internal units
+      def_set = normalize(def_HAG[1]);               // Default preset temperature in internal units
       ambient_temp  = normalize(100);         // Ambient temperatire in the internal units
       ambient_tempC = 25;          // Ambient temperature in Celsius
       Heater_CFG::init();
@@ -1035,18 +1038,11 @@ class IRON : public Heater {
     void     init(void);       
     bool     noIron(void)                       { return no_iron; }    
     
-    // uint16_t tempDispersion(void)               { return h_temp.dispersion(); }
-    // uint16_t powerDispersion(void)              { return h_power.dispersion(); }
     byte     getMaxFixedPower(void)             { return max_fixed_power; }
-    //int      changePID(byte p, int k)           { return PID::changePID(p, k); }
     int      overShootLeft()                    { return overshootLeftS; }
-    
-    //byte     getAvgPower(void);                 // Average applied power
-    //byte     appliedPower(void);                // Power applied to the solder [0-100%]
     byte     hotPercent(void);                  // How hot is the iron (used in the idle state)
 	  void     checkIron(void);                   // Check the IRON, stop it in case of emergency
     void     keepTemp(void);                    // Keep the IRON temperature, called by Timer1 interrupt
-    //bool     fixPower(byte Power);              // Set the specified power to the the soldering iron 
     uint16_t convertSensorMv2TempC(float mvf);
     void     setWork(boolean work);                // set iron to work/sleep (true/false0) state
     boolean  isWorkState()                      { return workState; }        // iron is working(true)/sleep(false);
@@ -1093,22 +1089,6 @@ class IRON : public Heater {
     int overshootLeftS = 0; // overshoot time (S) left
 }; 
  
-// void IRON::setTemp(uint16_t t) {
-//   //if (on) resetPID();
-//   temp_set = t;
-//   uint16_t ta = h_temp.average();
-//   chill = (ta > t + 5);                         // The IRON must be cooled
-// }
-
-// byte IRON::getAvgPower(void) {
-//   int p = h_power.average();
-//   return p & 0xff;  
-// }
-
-// byte IRON::appliedPower(void) {
-//   byte p = getAvgPower(); 
-//   return map(p, 0, max_power, 0, 100);  
-// }
 void IRON::setWork(boolean work)  { workState = work; } 
 void IRON::setOverShootTime(int16_t startC, int16_t endC){
 
@@ -1166,38 +1146,11 @@ void IRON::keepTemp(void) {
       }else{
         on();
       }
-    }
-     
-  }
-   
+    }     
+  }   
 }
 
-// bool IRON::fixPower(byte Power) {
-//   if (Power == 0) {                             // To switch off the IRON, set the Power to 0
-//     fix_power = false;
-//     actual_power = 0;
-//     fastPWM.duty(0);
-//     return true;
-//   }
-
-//   if (Power > max_fixed_power) {
-//     actual_power = 0;
-//     return false;
-//   }
-
-//   if (!fix_power) {
-//     fix_power = true;
-//     power = Power;
-//     actual_power = power & 0xff;
-//   } else {
-//     if (power != Power) {
-//       power = Power;
-//       actual_power = power & 0xff;
-//     }
-//   }
-//   fastPWM.duty(actual_power);
-//   return true;
-// }
+ 
 
 class HeaterSwitch { 
 
@@ -2305,8 +2258,7 @@ void setup() {
   tuneScr.main   = &offScr;
   pCurrentScreen->init();
 
-  // 
-  //clearAll(); //needed at the first time running the program or EEPROM is corupted
+  //   clearAll(); //needed at the first time running the program or EEPROM is corupted
   showCfg();
 
 }
