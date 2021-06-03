@@ -50,8 +50,7 @@ const byte LCD_DB7_PIN    = 8;
 const byte R_MAIN_PIN = 2;                      // Rotary Encoder main pin (right)
 const byte R_SECD_PIN = 4;                      // Rotary Encoder second pin (left)
 const byte R_BUTN_PIN = 3;                      // Rotary Encoder push button pin
-
-const byte probePIN  = A0;                      // NOT used // Thermometer pin from soldering iron  
+ 
 const byte paddlePIN = 9;                       // paddle pin
 const byte ironHeaterPIN = 10;                      // The soldering iron heater pin
 const byte buzzerPIN = 11;                      // The simple buzzer to make a noise
@@ -380,7 +379,7 @@ void Heater_CFG::init(void) {
 }
 
 bool Heater_CFG::isCold(uint16_t temp) {
-  return (temp < t_tip[0]) && (map(temp, ambient_temp, t_tip[0], ambient_tempC, temp_tip[0]) < 32);
+  return (temp < t_tip[0]); // && (map(temp, ambient_temp, t_tip[0], ambient_tempC, temp_tip[0]) < 32);
 }
 
 uint16_t Heater_CFG::tempPresetHuman(void) {
@@ -1071,10 +1070,10 @@ class IRON : public Heater {
     const byte     max_power       = 180;       // maximum power to the iron (220)
     const byte     max_fixed_power = 120;       // Maximum power in fiexed power mode
     const uint16_t check_time      = 10000;     // Time in ms to check Whether the solder is heating
-    const uint16_t heat_expected   = 10;        // The iron should change the temperature at check_time
+    //const uint16_t heat_expected   = 10;        // The iron should change the temperature at check_time
 	  const uint32_t check_iron_ms   = 1000;      // The period in ms to check Whether the IRON is conected
      
-    const uint16_t Overshoot_temp  = 700; //28mv 673C 
+    const uint16_t Overshoot_temp  = def_IRON[2] + 500; // sensor reading in 10uv
          
     boolean workState = false;                   // iron is in working state when value is TRUE, otherwise in sleeping state
     boolean warming = false;  
