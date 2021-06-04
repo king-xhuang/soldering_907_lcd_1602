@@ -25,7 +25,7 @@
 INA226 ina;
 
 
-uint16_t def_HAG[3] = {1017, 1460, 1937};   // Default values of hot air gun sensor in C at 250, 360, 470  
+uint16_t def_HAG[3] = {1138, 1640, 2150};   // Default values of hot air gun sensor in C at 280, 400, 520 
 uint16_t def_IRON[3] = {1138, 1800, 2461};  // Default values of internal sensor readings at 
       // reference temperatures for K type thermal tempretures in C: 280, 437, 593 -- this thermal temp NOT tip's
 
@@ -1469,7 +1469,7 @@ void workSCREEN::rotaryValue(int16_t value) {
 
 void workSCREEN::show(void) {
   if (millis() < update_screen) return;
-  dpS("workSCREEN::show  <<< ");
+  //dpS("workSCREEN::show  <<< ");
   update_screen = millis() + period;
 
   int temp      = pIron->tempAverage();//TODO
@@ -1527,7 +1527,7 @@ void workSCREEN::show(void) {
   } else {
     msgOn(); //pD->msgOn();
   }
-  dpS(">>>> workSCREEN::show   ");
+  //dpS(">>>> workSCREEN::show   ");
 
 }
 
@@ -1555,82 +1555,82 @@ class errorSCREEN : public SCREEN {
 };
 
 //---------------------------------------- class powerSCREEN [fixed power to the iron] -------------------------
-class powerSCREEN : public SCREEN {
-  public:
-    powerSCREEN(IRON* Iron, DSPL* DSP, ENCODER* Enc, IRON_CFG* CFG) {
-      pIron = Iron;
-      pD    = DSP;
-      pEnc  = Enc;
-      pCfg  = CFG;
-      on    = false;
-	    smode = S_POWER;
-    }
-    virtual void init(void);
-    virtual void show(void);
-    virtual void rotaryValue(int16_t value);
-    virtual SCREEN* menu(void);
-    virtual SCREEN* menu_long(void);
-  private:
-    IRON*     pIron;                            // Pointer to the iron instance
-    DSPL*     pD;                               // Pointer to the DSPLay instance
-    ENCODER*  pEnc;                             // Pointer to the rotary encoder instance
-    IRON_CFG* pCfg;                             // Pointer to the IRON Config
-    bool      on;                               // Whether the power of soldering iron is on
-	  const uint16_t period = 500;                // The period in ms to update the screen
-};
+// class powerSCREEN : public SCREEN {
+//   public:
+//     powerSCREEN(IRON* Iron, DSPL* DSP, ENCODER* Enc, IRON_CFG* CFG) {
+//       pIron = Iron;
+//       pD    = DSP;
+//       pEnc  = Enc;
+//       pCfg  = CFG;
+//       on    = false;
+// 	    smode = S_POWER;
+//     }
+//     virtual void init(void);
+//     virtual void show(void);
+//     virtual void rotaryValue(int16_t value);
+//     virtual SCREEN* menu(void);
+//     virtual SCREEN* menu_long(void);
+//   private:
+//     IRON*     pIron;                            // Pointer to the iron instance
+//     DSPL*     pD;                               // Pointer to the DSPLay instance
+//     ENCODER*  pEnc;                             // Pointer to the rotary encoder instance
+//     IRON_CFG* pCfg;                             // Pointer to the IRON Config
+//     bool      on;                               // Whether the power of soldering iron is on
+// 	  const uint16_t period = 500;                // The period in ms to update the screen
+// };
 
-void powerSCREEN::init(void) {
-  byte p = 1; //pIron->getAvgPower();
-  // byte max_power = pIron->getMaxFixedPower();
-  // pEnc->reset(p, 0, max_power, 1);
-  on = true;                                    // Do start heating immediately
-  pIron->switchPower(false);
- // pIron->fixPower(p);
-  pD->clear();
-  pD->pSet(p);
-  forceRedraw();
-}
+// void powerSCREEN::init(void) {
+//   byte p = 1; //pIron->getAvgPower();
+//   // byte max_power = pIron->getMaxFixedPower();
+//   // pEnc->reset(p, 0, max_power, 1);
+//   on = true;                                    // Do start heating immediately
+//   pIron->switchPower(false);
+//  // pIron->fixPower(p);
+//   pD->clear();
+//   pD->pSet(p);
+//   forceRedraw();
+// }
 
-void powerSCREEN::show(void) {
-  if (millis() < update_screen) return;
-  uint16_t temp = pIron->tempAverage();
-  temp = pCfg->tempHuman(temp);
-  pD->tCurr(temp);
-  update_screen = millis() + period;
-}
+// void powerSCREEN::show(void) {
+//   if (millis() < update_screen) return;
+//   uint16_t temp = pIron->tempAverage();
+//   temp = pCfg->tempHuman(temp);
+//   pD->tCurr(temp);
+//   update_screen = millis() + period;
+// }
 
-void powerSCREEN::rotaryValue(int16_t value) {
-  pD->pSet(value);
-  if (on)
-    //pIron->fixPower(value);
-  update_screen = millis() + (period << 1);
-}
+// void powerSCREEN::rotaryValue(int16_t value) {
+//   pD->pSet(value);
+//   if (on)
+//     //pIron->fixPower(value);
+//   update_screen = millis() + (period << 1);
+// }
 
-SCREEN* powerSCREEN::menu(void) {
-  on = !on;
-  if (on) {
-    uint16_t pos = pEnc->read();
-   // on = pIron->fixPower(pos);
-	  pD->clear();
-    pD->pSet(pos);
-	  update_screen = 0;
-  } else {
-   // pIron->fixPower(0);
-	  pD->clear();
-	  pD->pSet(0);
-	  pD->msgOff();
-  }
-  return this;
-}
+// SCREEN* powerSCREEN::menu(void) {
+//   on = !on;
+//   if (on) {
+//     uint16_t pos = pEnc->read();
+//    // on = pIron->fixPower(pos);
+// 	  pD->clear();
+//     pD->pSet(pos);
+// 	  update_screen = 0;
+//   } else {
+//    // pIron->fixPower(0);
+// 	  pD->clear();
+// 	  pD->pSet(0);
+// 	  pD->msgOff();
+//   }
+//   return this;
+// }
 
-SCREEN* powerSCREEN::menu_long(void) {
-  //pIron->fixPower(0);
-  if (nextL) {
-    pIron->switchPower(true);
-    return nextL;
-  }
-  return this;
-}
+// SCREEN* powerSCREEN::menu_long(void) {
+//   //pIron->fixPower(0);
+//   if (nextL) {
+//     pIron->switchPower(true);
+//     return nextL;
+//   }
+//   return this;
+// }
 
 //---------------------------------------- class configSCREEN [configuration menu] -----------------------------
 class configSCREEN : public SCREEN {
@@ -2315,42 +2315,40 @@ void run() {
     }
   }
   else{ // if heater type changed, return to main screen
-    uint32_t dTime = 10000; // delay time in mills for switching heater
-    Heater_CFG* hcf;
-    Heater* h = heaterSW.getActiveHeater(); 
-    dpB(" heater changed, is IRON() ", h->isIron());
-    if (h->isIron()){
-      hcf = &ironCfg;
-      dpS(" Heater is turned to IRON ");
-      dTime = 10000;
-      hag.fanOn();
-    }else{
-      hcf = &hagCfg;
-      dpS("Heater is turned to HOT AIR GUN  ");  
-      dTime = 2000;    
-    }   
-    dpS(" reset heater");
+    // uint32_t dTime = 10000; // delay time in mills for switching heater
+    // Heater_CFG* hcf;
+    // Heater* h = heaterSW.getActiveHeater(); 
+    // dpB(" heater changed, is IRON() ", h->isIron());
+    // if (h->isIron()){
+    //   hcf = &ironCfg;
+    //   dpS(" Heater is turned to IRON ");
+    //   dTime = 10000;
+    //   hag.fanOn();
+    // }else{
+    //   hcf = &hagCfg;
+    //   dpS("Heater is turned to HOT AIR GUN  ");  
+    //   dTime = 2000;    
+    // }   
+    // dpS(" reset heater");
 
-    pCurrentScreen = &offScr; // go back to main screen 
-    offScr.resetHeater(h, hcf); // reset heater type and config for all screens
-    wrkScr.resetHeater(h, hcf);
-    tipScr.resetHeater(h, hcf);
-    cfgScr.resetHeater(h, hcf);   
-    //errScr.resetHeater(h, hcf); 
-    tuneScr.resetHeater(h, hcf); 
-    delay(dTime);// TODO change delay time by checking heater current temp
-    hag.fanOff();
-    dpS(" delay end ");
-    // pCurrentScreen->init();
+    // pCurrentScreen = &offScr; // go back to main screen 
+    // offScr.resetHeater(h, hcf); // reset heater type and config for all screens
+    // wrkScr.resetHeater(h, hcf);
+    // tipScr.resetHeater(h, hcf);
+    // cfgScr.resetHeater(h, hcf);   
+    // //errScr.resetHeater(h, hcf); 
+    // tuneScr.resetHeater(h, hcf); 
+    // delay(dTime);// TODO change delay time by checking heater current temp
+    // hag.fanOff();
+    // //dpS(" delay end ");
+    // // pCurrentScreen->init();
+  } 
+  SCREEN* nxt = pCurrentScreen->returnToMain(); 
+  if (nxt != pCurrentScreen) {                  // return to the main screen by timeout
+    pCurrentScreen = nxt;
+    pCurrentScreen->init();
   }
-  dpS("returnToMain");
-  SCREEN* nxt = pCurrentScreen->returnToMain();
-  dpS("returnToMain 2 ");
-  // if (nxt != pCurrentScreen) {                  // return to the main screen by timeout
-  //   pCurrentScreen = nxt;
-  //   pCurrentScreen->init();
-  // }
-  dpS("intButtonStatus  ");
+ // dpS("intButtonStatus  ");
   byte bStatus = rotButton.intButtonStatus();
   switch (bStatus) {
     case 2:                                     // long press;
@@ -2385,9 +2383,7 @@ void run() {
     if (pCurrentScreen->isSetup())
      pCurrentScreen->resetTimeout();
   }
-  dpS(" show");
-  
-  pCurrentScreen->show();
-  dpS(" show  2" );
+   
+  pCurrentScreen->show(); 
 }
 
