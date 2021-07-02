@@ -130,6 +130,9 @@ void dpint(String s, int16_t t){
 void dpuint(String s, uint16_t t){
   Serial.print(s);Serial.println(t);
 }
+void dpuint32(String s, uint32_t t){
+  Serial.print(s);Serial.println(t);
+}
 void dplong(String s, long t){
   Serial.print(s);Serial.println(t);
 }
@@ -198,36 +201,36 @@ class CONFIG {
     void print(){ 
       dpS(  "#####  CONFIG   #####");
       dpint("totalRec: ", totalRec);
-      dpB("loadRec: ", loadRec);
+      dpB(  "loadRec: ", loadRec);
       dpint("index: ", index);
       dpint("eprom length: ", eLength);
-      dpS("CfgRec ");
-      dpB("is iron: ", CfgRec.isIron);
+      dpS(  "CfgRec ");
+      dpB(  "is iron: ", CfgRec.isIron);
       dpint("index: ", CfgRec.index);
       dpint("cal 0: ", CfgRec.calibrations[0]);
       dpint("cal 1: ", CfgRec.calibrations[1]);
       dpint("cal 2: ", CfgRec.calibrations[2]);
       dpint("preset temp: ", CfgRec.temp);
       dpint("timeout: ", CfgRec.off_timeout);
-      dpS("#####        #####");
-      dpS("                  ");
+      dpS(  "#####           #####");
+      dpS(  "                  ");
     }
     void init();
     bool load(void);               
     void getCfgRec(struct cfgRec &);              // Copy config structure from this class 
     void updateCfgRec(struct cfgRec &Cfg);        // Copy updated config into this class
-    bool save(void);                                  // Save current config copy to the EEPROM 
-    bool saveCfgRec(struct cfgRec &Cfg);  
-    void clearAll(void);                               // Clean all EEPROM
-    bool findCfgRecByType(bool TypeisIron);           // find the first cfgRec as TypeisTron        
-    //bool findCfgRecByIndex(byte index);           // find the   cfgRec by index      
+    bool save(void);                              // Save current config copy to the EEPROM 
+    bool saveCfgRec(struct cfgRec &Cfg);          // Update the cfgRec ans save current config copy to the EEPROM 
+    void clearAll(void);                          // Clean all EEPROM
+    bool findCfgRecByType(bool TypeisIron);       // find the first cfgRec as TypeisTron        
+    //bool findCfgRecByIndex(byte index);         // find the   cfgRec by index      
 
   protected:
     
     struct   cfgRec CfgRec;
     bool isIron = true;
      
-    int totalRec = 0;
+    int  totalRec = 0;
     byte loadRec = false;
     byte index = 0; // i based 
     byte firstRecAddr = 8;
@@ -748,13 +751,17 @@ void DSPL::tSet(uint16_t t, bool celsius) {
   LiquidCrystal::print(buff);
 }
 
-void DSPL::overShoot(int o) {  
+void DSPL::overShoot(int ot) {  
   char buff[5];
   char units = 'F';
    
   LiquidCrystal::setCursor(6, 0);
-  sprintf(buff, "%c%2d", units, o);
-  LiquidCrystal::print(buff);
+  if (ot < 0 ){
+    LiquidCrystal::print(F("    "));
+  }else{
+    sprintf(buff, "%c%2d", units, ot);
+    LiquidCrystal::print(buff);
+  }  
 }
 
 void DSPL::tCurr(uint16_t t) {
@@ -926,7 +933,10 @@ class Heater {
   public:
     void  switchPower(bool turnOn)
     { isOn = turnOn; 
-        if(isOn){ on(); setNextCheckTempTimeMS();}
+        if(isOn){ 
+          on(); 
+          afterStart();
+          setNextCheckTempTimeMS();}
         else off();
     }
     bool  virtual isIron(void){}
@@ -935,6 +945,7 @@ class Heater {
     void  virtual keepTemp(void){}
     void  virtual on(void){}
     void  virtual off(void){}
+    void  virtual afterStart(void){} // event handler after started heater, such reset sleepTime
     
     void  virtual setNextCheckTempTimeMS(void){ 
       next_check_temp_time_ms =  millis() + check_temp_ms;
@@ -992,8 +1003,6 @@ void HotAirGun::checkHAG(void){//TODO
 }
 void HotAirGun::keepTemp(void){//TODO
   dpB("HotAirGun::keepTemp isOn=", isOn);
-  //delay(2000); 
-  
   
   if (millis() >= next_check_temp_time_ms){
     setNextCheckTempTimeMS();
@@ -1006,14 +1015,15 @@ void HotAirGun::keepTemp(void){//TODO
     uint16_t targetTemp = getTemp();
     // if (paddleDown) targetTemp = Overshoot_temp; //getMaxTemp();
     dpint("targetTemp = ", targetTemp); 
-    if (!isOn || isSleep()){
+    if (paddleDown) on();
+    else if (!isOn || isSleep()){
       off(); 
       dpS("HAG is off");
      //delay(100);
     } 
     else{
-      if( (uint16_t)nlSensorReading > targetTemp ){//TODO fine tuning heating algorithm          
-          off();   
+      if( (uint16_t)nlSensorReading > targetTemp ){//TODO fine tuning heating algorithm     
+        off();  
       }else{        
         on();
       }
@@ -1031,21 +1041,24 @@ class IRON : public Heater {
       check_temp_ms   = 100;       // time frame for check iron tempreture       
     }
     bool  isIron(void){ return true; }
-    bool  isSleep(void) { return  false; }  //TODO
-    void on(void){  digitalWrite(hPIN, HIGH);}
-    void off(void){  digitalWrite(hPIN, LOW);}
-    void     init(void);       
-    bool     noIron(void)                       { return no_iron; }    
+    bool  isSleep(void) { return  millis() > time2sleepMs ; }  
+    void  afterStart(void){ resetTime2sleep();}
+    void  on(void){  digitalWrite(hPIN, HIGH);}
+    void  off(void){  digitalWrite(hPIN, LOW);}
+    void  init(void);       
+    bool  noIron(void)                       { return no_iron; }    
     
-    byte     getMaxFixedPower(void)             { return max_fixed_power; }
+    //byte     getMaxFixedPower(void)             { return max_fixed_power; }
     int      overShootLeft()                    { return overshootLeftS; }
-    byte     hotPercent(void);                  // How hot is the iron (used in the idle state)
+    //byte     hotPercent(void);                  // How hot is the iron (used in the idle state)
 	  void     checkIron(void);                   // Check the IRON, stop it in case of emergency
     void     keepTemp(void);                    // Keep the IRON temperature, called by Timer1 interrupt
     uint16_t convertSensorMv2TempC(float mvf);
     void     setWork(boolean work);                // set iron to work/sleep (true/false0) state
     boolean  isWorkState()                      { return workState; }        // iron is working(true)/sleep(false);
     void     setOverShootTime(int16_t start, int16_t end);
+    void     resetTime2sleep() { uint32_t mil = millis(); time2sleepMs = mil + workTimeMs; }//dpuint32("time2sleepMs=", time2sleepMs); dpuint32("workTimeMs ", workTimeMs); delay(3000);}
+    uint16_t getSleepTemp(){ return sleepTemp; }
     
 
   private:
@@ -1086,8 +1099,12 @@ class IRON : public Heater {
     uint32_t overshoot_expire_time_ms   = 0;
     boolean reachTarget = false;     
     int overshootLeftS = 0; // overshoot time (S) left
+    uint32_t workTimeMs = 180000; //3*60*1000; // 3 minutes IN MSIN MS
+    uint16_t sleepTemp = def_IRON[0]; // sensor value
+    uint32_t time2sleepMs = 0;
 }; 
  
+
 void IRON::setWork(boolean work)  { workState = work; } 
 void IRON::setOverShootTime(int16_t startC, int16_t endC){
 
@@ -1119,7 +1136,10 @@ void IRON::checkIron(void) {
 
 void IRON::keepTemp(void) {
   dpB("iron on= ", isOn);
-
+  if (!isOn){
+      off(); 
+      return;
+  } 
   //delay(500);//TODO 
   
   
@@ -1134,18 +1154,19 @@ void IRON::keepTemp(void) {
      
     no_iron = false;//TODO
     uint16_t targetTemp = getTemp();
-    if (paddleDown) targetTemp = Overshoot_temp; //getMaxTemp();
-    dpint("targetTemp = ", targetTemp); 
-    if (!isOn){
-      off(); 
+    if (isSleep()) targetTemp = getSleepTemp();
+    if (paddleDown){
+       targetTemp = Overshoot_temp; //getMaxTemp();
+       resetTime2sleep();
     } 
-    else{
-      if( (uint16_t)nlSensorReading > targetTemp ){//TODO fine tuning heating algorithm          
-          off();   
-      }else{
-        on();
-      }
-    }     
+    dpint("targetTemp = ", targetTemp); 
+     
+    if( (uint16_t)nlSensorReading > targetTemp ){//TODO fine tuning heating algorithm          
+      off();   
+    }else{
+      on();
+    }
+        
   }   
 }
 
@@ -1245,8 +1266,8 @@ class SCREEN {
   protected:
     sMode   smode;                              // The screen mode
 	  uint32_t update_screen;                     // Time in ms when the sreen should be updated
-    uint16_t scr_timeout;                       // Timeout is sec. to return to the main screen, canceling all changes
-    uint32_t time_to_return;                    // Time in ms to return to main screen
+    uint16_t scr_timeout;                       // Timeout in sec. to return to the main screen, canceling all changes
+    uint32_t time_to_return;                    // Timeout in ms 
     char heaterType = HeaterTypeHAG;
      
 };
@@ -1462,9 +1483,12 @@ void workSCREEN::rotaryValue(int16_t value) {
   update_screen = millis() + period;
   uint16_t temp = pCfg->human2temp(value);
   pIron->setTemp(temp);
+   
+  
   pD->tSet(value, pCfg->isCelsius());
   //idle_power.init();
   SCREEN::resetTimeout();
+  if (pIron->isIron()) pIron->afterStart();
 }
 
 void workSCREEN::show(void) {
@@ -1477,10 +1501,13 @@ void workSCREEN::show(void) {
   int tempH     = pCfg->tempHuman(temp); 
   
   pD->tCurr(tempH);
-  if(paddleDown){// SHOW paddle down time in second on first line after pre-set temp
+  if(paddleDown){// SHOW paddle down time in second on first line of LCD after pre-set temp
     int paddleDownSec = (millis() - paddleDown_start_ms) / 1000;
     pD->overShoot(paddleDownSec);
-  } 
+    resetTimeout();
+  } else{
+    pD->overShoot(-1); // clear off over shoot time
+  }
   //byte p = pIron->appliedPower();
   //pD->percent(p);
 
@@ -2271,9 +2298,14 @@ void showCfg(){
 void clearAll(){
   ironCfg.clearAll();
 }
+void testuint32(){
+  uint32_t workTimeMs = 180000; //(3*60)*1000;
+   dpuint32("workTimeMs ", workTimeMs);
+}
  
 // The main loop
 void loop() {
+  //testuint32();
   run();
 }
 void run() {
@@ -2281,21 +2313,21 @@ void run() {
   static int16_t old_pos = rotEncoder.read();
   bool heaterChanged = false; //heaterSW.isHeaterChanged();
   if(!heaterChanged){ 
-
+    checkPaddle();
+    if ( paddleDown  && (pCurrentScreen != &wrkScr)){
+          pCurrentScreen = &wrkScr;
+          pCurrentScreen->init();
+    }
     if (activeIron){
       dpS("ActiveHeater is Iron");
       hag.switchPower(false);
       hag.fanOff();//TODO 
-      checkPaddle();
-      if ( paddleDown  && (pCurrentScreen != &wrkScr)){
-            pCurrentScreen = &wrkScr;
-            pCurrentScreen->init();
-      }
+      
       //dpS("checkIron");
       iron.checkIron();       // Periodically check that the IRON works correctrly
       // Serial.print("getTemp()=");
       // Serial.println(iron.getTemp());
-      dpS("keepTemp");
+      //dpS("keepTemp");
       iron.keepTemp();      
       //delay(1000);//TODO test
       bool iron_on = iron.isActive();
@@ -2310,7 +2342,7 @@ void run() {
       dpS("ActiveHeater is Hot Air Gun");
       iron.switchPower(false);
       hag.fanOn();
-      hag.checkHAG();
+      hag.checkHAG();      
       hag.keepTemp();
     }
   }
@@ -2385,5 +2417,5 @@ void run() {
   }
    
   pCurrentScreen->show(); 
-}
+}// end of run()
 
