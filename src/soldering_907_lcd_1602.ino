@@ -84,8 +84,9 @@ volatile uint16_t  tmr1_count;                  // The count to calculate the te
 volatile bool      iron_off;                    // Whether the IRON is switched off to check the temperature
 const uint32_t     check_period = 100;          // The IRON temperature check period, ms
 //
-float sensorMvf = - 1.0;
+//float sensorMvf = - 1.0;
 int16_t sensorValue = 0;
+int16_t targetSensorValue = 0;
 
 
 
@@ -730,11 +731,11 @@ class DSPL : protected LiquidCrystal {
     void msgCancel(void);                       // Show 'cancel' message
     void msgApply(void);       
     void setupMode(byte mode, byte p = 0);      // Show the configureation mode [0 - 2]
-    void percent(byte Power);                   // Show the percentage
+    //void percent(byte Power);                   // Show the percentage
     void overShoot(int os);                     // show overshoot left time in seconds
     void msgHeaterType(char ty);                   // show heater type I - iron, H - hot air gun
   private:
-    bool full_second_line;                      // Wether the second line is full with the message
+   // bool full_second_line;                      // Wether the second line is full with the message
     const byte degree[8] = {
       0b00110,
       0b01001,
@@ -750,7 +751,7 @@ void DSPL::init(void) {
   LiquidCrystal::begin(16, 2);
   LiquidCrystal::clear();
   LiquidCrystal::createChar(1, degree);
-  full_second_line = false;
+  //full_second_line = false;
 }
 
 void DSPL::tSet(uint16_t t, bool celsius) {
@@ -786,13 +787,17 @@ void DSPL::tCurr(uint16_t t) {
   }
   LiquidCrystal::print(buff);
   LiquidCrystal::setCursor(6, 1); 
-  LiquidCrystal::print(sensorMvf, 2);
-  if (tune) {
-    char buf[4];
-    sprintf(buf, "%4d", sensorValue); 
-    LiquidCrystal::setCursor(12, 1); 
-    LiquidCrystal::print(buf);
-  }
+  LiquidCrystal::print(F("         "));// 9
+  LiquidCrystal::setCursor(6, 1);
+  LiquidCrystal::print(sensorValue);
+  LiquidCrystal::setCursor(11, 1);
+  LiquidCrystal::print(targetSensorValue);
+  // if (tune) {
+  //   char buf[4];
+  //   sprintf(buf, "%4d", sensorValue); 
+  //   LiquidCrystal::setCursor(12, 1); 
+  //   LiquidCrystal::print(buf);
+  // }
   
 }
 
@@ -820,7 +825,7 @@ void DSPL::msgHeaterType(char c){
 void DSPL::msgNoIron(void) {
   LiquidCrystal::setCursor(0, 1);
   LiquidCrystal::print(F("    no iron     "));
-  full_second_line = true;
+  //full_second_line = true;
 }
    
 void DSPL::msgReady(bool s) {  
@@ -860,7 +865,7 @@ void DSPL::msgOff(void) {
 void DSPL::msgCold(void) {
   LiquidCrystal::setCursor(0, 1);
   LiquidCrystal::print(F("      cold      "));
-  full_second_line = true;
+  //full_second_line = true;
 }
 
 void DSPL::msgFail(void) {
@@ -931,12 +936,12 @@ void DSPL::setupMode(byte mode, byte p) {
   }
 }
 
-void DSPL::percent(byte Power) {
-  char buff[13];
-  sprintf(buff, "       %3d%c", Power, '%');
-  LiquidCrystal::setCursor(4, 1);
-  //LiquidCrystal::print(buff);//TODO
-}
+// void DSPL::percent(byte Power) {
+//   char buff[13];
+//   sprintf(buff, "       %3d%c", Power, '%');
+//   LiquidCrystal::setCursor(4, 1);
+//   //LiquidCrystal::print(buff);//TODO
+// }
 
 //------------------------------------------ class HISTORY ----------------------------------------------------
 #define H_LENGTH 16
@@ -965,6 +970,12 @@ class Heater {
     
     void  virtual setNextCheckTempTimeMS(void){ 
       next_check_temp_time_ms =  millis() + check_temp_ms;
+    }
+    void readSensor(){
+      sensorReadingRaw =  readSensorRaw();
+      nlSensorReading = normalize(sensorReadingRaw);
+      sensorValue = nlSensorReading;
+
     }
     uint16_t getTemp(void){ return temp_set; }
     void     setTemp(uint16_t t){ temp_set = t;}           // Set the temperature to be keeped
@@ -1018,19 +1029,18 @@ void HotAirGun::checkHAG(void){//TODO
 
 }
 void HotAirGun::keepTemp(void){//TODO
-  dpB("HotAirGun::keepTemp isOn=", isOn);
+  //dpB("HotAirGun::keepTemp isOn=", isOn);
   
   if (millis() >= next_check_temp_time_ms){
     setNextCheckTempTimeMS();
-    sensorReadingRaw =  readSensorRaw();
-    nlSensorReading = normalize(sensorReadingRaw);
-    sensorMvf = convertSensorRaw2MV(sensorReadingRaw);
-    dpint("raw = ", nlSensorReading);
+    readSensor();
+    //sensorMvf = convertSensorRaw2MV(sensorReadingRaw);
+    //dpint("raw = ", nlSensorReading);
     // dpint("keepTemp getTemp()= ",  getTemp() );
     // dpint("keepTemp getMaxTemp()= ", getMaxTemp() ); 
-    uint16_t targetTemp = getTemp();
+    targetSensorValue = getTemp();
     // if (paddleDown) targetTemp = Overshoot_temp; //getMaxTemp();
-    dpint("targetTemp = ", targetTemp); 
+    //dpint("targetTemp = ", targetSensorValue); 
     if (paddleDown) on();
     else if (!isOn || isSleep()){
       off(); 
@@ -1038,7 +1048,7 @@ void HotAirGun::keepTemp(void){//TODO
      //delay(100);
     } 
     else{
-      if( (uint16_t)nlSensorReading > targetTemp ){//TODO fine tuning heating algorithm     
+      if( (uint16_t)nlSensorReading > targetSensorValue ){//TODO fine tuning heating algorithm     
         off();  
       }else{        
         on();
@@ -1151,35 +1161,27 @@ void IRON::checkIron(void) {
 }
 
 void IRON::keepTemp(void) {
-  dpB("iron on= ", isOn);
-  if (!isOn){
-      off(); 
-      return;
-  } 
-  //delay(500);//TODO 
-  
-  
+  //dpB("iron on= ", isOn);
+  //delay(500);//TODO   
   if (millis() >= next_check_temp_time_ms){
     setNextCheckTempTimeMS();
-    sensorReadingRaw =  readSensorRaw();
-    nlSensorReading = normalize(sensorReadingRaw);
-    sensorValue = nlSensorReading;
-    sensorMvf = convertSensorRaw2MV(sensorReadingRaw);
-    dpint("raw = ", nlSensorReading);
-    // dpint("keepTemp getTemp()= ",  getTemp() );
-    // dpint("keepTemp getMaxTemp()= ", getMaxTemp() );
-     
+    readSensor();
+    //sensorMvf = convertSensorRaw2MV(sensorReadingRaw);
+    //dpint("raw = ", nlSensorReading);     
     no_iron = false;//TODO
-    uint16_t targetTemp = getTemp();
-    if (tune) targetTemp = tune_temp;
-    if (isSleep()) targetTemp = getSleepTemp();
-    if (paddleDown){
-       targetTemp = Overshoot_temp; //getMaxTemp();
-       resetTime2sleep();
+    targetSensorValue = getTemp();
+    if (!isOn){
+      off(); 
+      return;
     } 
-    dpint("targetTemp = ", targetTemp); 
+    if (tune) targetSensorValue = tune_temp;
+    if (isSleep()) targetSensorValue = getSleepTemp();
+    if (paddleDown){
+       targetSensorValue = Overshoot_temp; //getMaxTemp();
+       resetTime2sleep();
+    }      
      
-    if( (uint16_t)nlSensorReading > targetTemp ){//TODO fine tuning heating algorithm          
+    if( (uint16_t)nlSensorReading > targetSensorValue ){//TODO fine tuning heating algorithm          
       off();   
     }else{
       on();
@@ -1476,9 +1478,6 @@ void workSCREEN::init(void) {
   //   pIron->setOverShootTime(nlSensorReadingC, tempSetC);
     
   // }
-  
-
-
   if (is_celsius)
     pEnc->reset(tempH, temp_minC, temp_maxC, 1, 5);
   else
@@ -1944,6 +1943,8 @@ class tuneSCREEN : public SCREEN {
 };
 
 void tuneSCREEN::init(void) {
+
+  pEnc->reset((int16_t)tune_temp, (int16_t)tune_temp - 200, (int16_t)tune_temp + 200, 1, 10, false); 
   showTuneTemp = true;
   tune = true;
   pIron->switchPower(true);
@@ -1956,8 +1957,7 @@ void tuneSCREEN::init(void) {
 }
 
 void tuneSCREEN::rotaryValue(int16_t value) {
- // pIron->fixPower(value);
-  showTuneTemp = false;
+  tune_temp = (uint16_t)pEnc->read();   // take encoder value as tune_temp
   forceRedraw();
 }
 
@@ -1965,12 +1965,8 @@ void tuneSCREEN::show(void) {
   if (millis() < update_screen) return;
   update_screen = millis() + period;
   int16_t temp = pIron->getCurrTemp();
-  if(showTuneTemp)  pD->tCurr(tune_temp);
-  else{
-    byte power = pEnc->read();  
-    pD->tCurr(power);
-  }  
-                    // applied power
+  pD->tCurr(tune_temp);  //show sensor value of tune targrt temp   
+  // applied power
   // if (!pIron->isActive())
   //   power = 0;
   // else
@@ -1985,8 +1981,8 @@ void tuneSCREEN::show(void) {
 SCREEN* tuneSCREEN::menu(void) {                // The rotary button pressed
 // if(tune) tune - false;
 // else tune = true;
-if(showTuneTemp) showTuneTemp = false;
-else showTuneTemp = true;
+// if(showTuneTemp) showTuneTemp = false;
+// else showTuneTemp = true;
 
 // if (pIron->isActive()) {
 //     pIron->switchPower(true);
@@ -1997,6 +1993,7 @@ else showTuneTemp = true;
 }
 
 SCREEN* tuneSCREEN::menu_long(void) {
+  tune = false;
   pIron->switchPower(false);                          // switch off the power
   if (next) return next;
   return this;
