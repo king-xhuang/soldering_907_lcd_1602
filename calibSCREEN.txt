@@ -1,0 +1,17 @@
+SCREEN* calibSCREEN -- IRON CALIBRATION 
+
+in configSCREEN select config, short push handle and then jump to calibSCREEN::menu() screen 1 to select reference temp.
+
+calibSCREEN::menu(void) -  
+has two screen : when you enter from configSCREEN, you will see the 1st one.
+1. show reference temp (200, 300, 400) at left top corner. rotate encoder to select one of them. When short push handle, you get into
+screen 2.  On this screen you can long push the handle to save the cali data and return to mainSCREEN.
+
+2. show reference temp at left top corner and current temp and sensor reading  at 2nd line. use external thermal sensor to measure 
+iron tip temp. After external thermal sensor reading stable, turn the encoder to  make current temp (at left bottom concer) reading be the
+same as external thermal sensor reading. After short push handle, screen 2 will be seen again, and you continue on cal the 
+nest reference temp point.
+
+
+calibSCREEN::menu_long() -- long push on handle
+save calibaration data to EPROM and jump to mainSCREEM
