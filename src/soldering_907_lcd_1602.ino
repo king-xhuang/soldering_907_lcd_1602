@@ -532,7 +532,14 @@ class BUZZER {
     void init(void);
     void shortBeep(void)  { tone(buzzerPIN, 3520, 160); }
     void lowBeep(void)    { tone(buzzerPIN,  880, 160); }
-    void doubleBeep(void) { tone(buzzerPIN, 3520, 160); delay(300); tone(buzzerPIN, 3520, 160); }
+    void multiBeep(byte t){ 
+      for (byte i = 0; i < t; i++){
+        tone(buzzerPIN, 3520, 500); delay(300);
+        tone(buzzerPIN,  880, 500); delay(1000);
+      }
+    }
+    void doubleBeep(void) {multiBeep(2);} 
+     
     void failedBeep(void) { tone(buzzerPIN, 3520, 160); delay(170);
                             tone(buzzerPIN,  880, 250); delay(260);
                             tone(buzzerPIN, 3520, 160);
@@ -987,7 +994,8 @@ class Heater {
   protected: 
     int16_t sensorReadingRaw = 0;
     int16_t nlSensorReading = 0;
-    volatile bool isOn; 
+    volatile bool isOn;    // heater state, true - on, false - off
+    volatile bool turn2Sleep = false; // while isOn == true, this can be true/false
     uint32_t check_temp_ms;
     uint32_t next_check_temp_time_ms   = 0;    //next time in millis for checking iron tempreture. 
                                                   //  should be set to mills() + check_temp_ms when one tempreture check is completed
@@ -1061,13 +1069,21 @@ void HotAirGun::keepTemp(void){//TODO
 //------------------------------------------ class soldering iron ---------------------------------------------
 class IRON : public Heater {
   public:
-    IRON(byte heater_pin) {
+    IRON(byte heater_pin, BUZZER* Buzz) {
+      pBz = Buzz;
       hPIN = heater_pin;
       no_iron = false;//TODO
       check_temp_ms   = 100;       // time frame for check iron tempreture       
     }
     bool  isIron(void){ return true; }
-    bool  isSleep(void) { return  millis() > time2sleepMs ; }  
+    bool  isSleep(void) { 
+      if(turn2Sleep) return true;   // already slept
+      else if( millis() > time2sleepMs ){// just turn to sleep
+        turn2Sleep = true;
+        pBz->doubleBeep();
+        return true;
+      }else return false;  // not sleep 
+    } 
     void  afterStart(void){ resetTime2sleep();}
     void  on(void){  digitalWrite(hPIN, HIGH);}
     void  off(void){  digitalWrite(hPIN, LOW);}
@@ -1083,11 +1099,12 @@ class IRON : public Heater {
     void     setWork(boolean work);                // set iron to work/sleep (true/false0) state
     boolean  isWorkState()                      { return workState; }        // iron is working(true)/sleep(false);
     void     setOverShootTime(int16_t start, int16_t end);
-    void     resetTime2sleep() { uint32_t mil = millis(); time2sleepMs = mil + workTimeMs; }//dpuint32("time2sleepMs=", time2sleepMs); dpuint32("workTimeMs ", workTimeMs); delay(3000);}
+    void     resetTime2sleep() { uint32_t mil = millis(); time2sleepMs = mil + workTimeMs; turn2Sleep = false;}//dpuint32("time2sleepMs=", time2sleepMs); dpuint32("workTimeMs ", workTimeMs); delay(3000);}
     uint16_t getSleepTemp(){ return sleepTemp; }
     
 
   private:
+    BUZZER*   pBz; 
     //FastPWM  fastPWM;                           // Power the IRON using fast PWM through D10 pin using Timer1
     uint32_t check_ironMS;                      // Milliseconds when to check the IRON is connected
     byte     hPIN;                        // The heater PIN and the sensor PIN
@@ -1125,7 +1142,7 @@ class IRON : public Heater {
     uint32_t overshoot_expire_time_ms   = 0;
     boolean reachTarget = false;     
     int overshootLeftS = 0; // overshoot time (S) left
-    uint32_t workTimeMs = 180000; //3*60*1000; // 3 minutes IN MSIN MS
+    uint32_t workTimeMs = 180000; //3*60*1000 ms -- 3 minutes 
     uint16_t sleepTemp = def_IRON[0]; // sensor value
     uint32_t time2sleepMs = 0;
 }; 
@@ -1581,7 +1598,7 @@ SCREEN* workSCREEN::returnToMain(void) {
   if (main && (scr_timeout != 0) && (millis() >= time_to_return)) {
     scr_timeout = 0;
     //pCfg->save();
-    pBz->doubleBeep();
+    pBz->multiBeep(4);
     return main;
   }
   return this;
@@ -1978,9 +1995,16 @@ void tuneSCREEN::show(void) {
   // }
 }
   
-SCREEN* tuneSCREEN::menu(void) {                // The rotary button pressed
-// if(tune) tune - false;
-// else tune = true;
+SCREEN* tuneSCREEN::menu(void) {                // The rotary button pressed 
+  if(tune){
+    tune = false;
+    pD->msgOff();
+  } 
+  else{
+    tune = true;
+    pD->msgOn();
+  } 
+  pIron->switchPower(tune); // pause/resume tune mode and power
 // if(showTuneTemp) showTuneTemp = false;
 // else showTuneTemp = true;
 
@@ -2117,16 +2141,16 @@ SCREEN* tuneSCREEN::menu_long(void) {
 //   return this;
 // }
 //=================================== End of class declarations ================================================
-
+BUZZER     simpleBuzzer(buzzerPIN);
 DSPL       disp(LCD_RS_PIN, LCD_E_PIN, LCD_DB4_PIN, LCD_DB5_PIN, LCD_DB6_PIN, LCD_DB7_PIN);
 ENCODER    rotEncoder(R_MAIN_PIN, R_SECD_PIN);
 BUTTON     rotButton(R_BUTN_PIN);
-IRON       iron(ironHeaterPIN);
+IRON       iron(ironHeaterPIN, &simpleBuzzer);
 IRON_CFG   ironCfg;
 HAG_CFG    hagCfg;
 HotAirGun  hag(hagHeaterPIN, hagSleepPIN, blowerPIN);
 HeaterSwitch heaterSW(&iron, &ironCfg, &hag, &hagCfg);
-BUZZER     simpleBuzzer(buzzerPIN);
+
 
 mainSCREEN   offScr(&iron, &disp, &rotEncoder, &simpleBuzzer, &ironCfg);
 workSCREEN   wrkScr(&iron, &disp, &rotEncoder, &simpleBuzzer, &ironCfg);
@@ -2263,12 +2287,19 @@ void clearAll(){
 //   in = 0;
 //   //while(in++ < imax) simpleBuzzer.lowBeep();
 // }
+// void testBeep(){
+//   simpleBuzzer.doubleBeep();
+//   delay(3000);
+//   simpleBuzzer.multiBeep(4);
+//   delay(6000);
+// }
  
 // The main loop
 void loop() {
   //testBeep();
   //testuint32();
   run();
+  
 }
 void run() {
   dpS("loop --------");
